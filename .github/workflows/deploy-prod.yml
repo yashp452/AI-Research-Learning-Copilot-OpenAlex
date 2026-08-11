@@ -38,7 +38,7 @@ jobs:
       
       - name: Install Databricks SDK
         run: |
-          pip install databricks-sdk
+          pip install databricks-sdk databricks-labs-apps
       
       - name: Deploy to Production App
         env:
