@@ -40,17 +40,6 @@ jobs:
         run: |
           pip install databricks-sdk
       
-      - name: Configure Databricks CLI
-        env:
-          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
-          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
-        run: |
-          echo "Setting up Databricks CLI..."
-          databricks configure --token <<EOF
-          $DATABRICKS_HOST
-          $DATABRICKS_TOKEN
-          EOF
-      
       - name: Deploy to Production App
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
@@ -62,6 +51,9 @@ jobs:
             --description "Production deployment from main branch - commit ${{ github.sha }}"
       
       - name: Verify Deployment
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
         run: |
           echo "Waiting for app to start..."
           sleep 30
