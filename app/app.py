@@ -35,19 +35,18 @@ def llm_client():
     if _client is None:
         from openai import OpenAI
         from databricks.sdk import WorkspaceClient
-        import os
-
-        w = WorkspaceClient()
-        # For Databricks Apps, use OAuth token from the workspace client
-        token = w.config.authenticate()
-        if hasattr(token, 'token'):
-            api_key = token.token()
-        else:
-            # Fallback to environment variable or host-based token
-            api_key = os.environ.get('DATABRICKS_TOKEN') or w.config.token or 'dummy'
         
+        w = WorkspaceClient()
+        # For service principals in Databricks Apps, get OAuth token through the SDK
+        # The SDK's credential provider handles M2M OAuth automatically
+        credentials = w.config.authenticate()
+        if callable(credentials):
+            token = credentials()
+        else:
+            token = str(credentials) if credentials else None
+            
         _client = OpenAI(
-            api_key=api_key,
+            api_key=token,
             base_url=f"{w.config.host}/serving-endpoints"
         )
     return _client
