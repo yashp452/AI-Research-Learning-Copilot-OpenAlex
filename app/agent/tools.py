@@ -151,17 +151,6 @@ def to_or_tsquery(text: str) -> str:
 
 def _log_trace(session_id, tool_name, params, result, error, duration_ms, user_email=None):
     """Best effort. Failing to log must never fail the tool itself."""
-    def _safe_json(obj, limit=8000):
-        """Slicing a serialised string produces invalid JSON. Wrap oversized
-        payloads in a valid envelope instead of truncating mid-token."""
-        if obj is None:
-            return None
-        text = json.dumps(obj, default=str)
-        if len(text) <= limit:
-            return text
-        return json.dumps({"_truncated": True, "_original_bytes": len(text),
-                           "_preview": text[:limit // 2]})
-
     try:
         with db(dict_rows=False) as (conn, cur):
             cur.execute(
@@ -170,10 +159,14 @@ def _log_trace(session_id, tool_name, params, result, error, duration_ms, user_e
                     (session_id, tool_name, user_email, parameters, result, error, duration_ms)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """,
-                (session_id, tool_name, user_email,
-                 _safe_json(params), _safe_json(result), error, duration_ms),
+                (
+                    session_id, tool_name, user_email,
+                    json.dumps(params, default=str),
+                    json.dumps(result, default=str)[:8000] if result else None,
+                    error, duration_ms,
+                ),
             )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - observability must not break the feature
         print(f"[trace] failed to log {tool_name}: {e}")
 
 
@@ -201,6 +194,37 @@ def traced(fn):
     wrapper.__name__ = fn.__name__
     wrapper.__doc__ = fn.__doc__
     return wrapper
+
+
+# ---------------------------------------------------------------------------
+# Identity - NOT exposed to the model
+#
+# Deliberately absent from TOOL_SCHEMAS. The app resolves who the user is from
+# the request headers and passes user_id in; anything the model can call, it can
+# call with the wrong arguments, and picking an identity is not its job.
+# ---------------------------------------------------------------------------
+
+@traced
+def get_or_create_user(email: str, display_name: str = None):
+    """Resolve a signed-in user to a user_id, creating the row on first visit."""
+    email = (email or "").strip().lower()
+    if not email:
+        return {"success": False, "error": "email is required."}
+
+    with db() as (conn, cur):
+        cur.execute(
+            """
+            INSERT INTO users (email, display_name)
+            VALUES (%s, %s)
+            ON CONFLICT (email)
+            DO UPDATE SET display_name = COALESCE(EXCLUDED.display_name, users.display_name)
+            RETURNING user_id, email, display_name
+            """,
+            (email, display_name or email.split("@")[0]),
+        )
+        row = cur.fetchone()
+
+    return {"success": True, **dict(row)}
 
 
 # ---------------------------------------------------------------------------
