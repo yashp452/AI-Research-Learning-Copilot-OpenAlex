@@ -135,14 +135,17 @@ When dev is tested and ready:
 **Steps:**
 1. Checkout code from GitHub
 2. Install Databricks CLI (official GitHub Action)
-3. Resolve workspace path for current user
-4. **Sync app source to workspace** (uploads ./app to workspace)
-5. Deploy to `lakebase-app-yash-dev` from workspace path
+3. Resolve workspace path (uses shared location: `/Workspace/Shared/apps/ci-cd/`)
+4. **Sync app source to shared workspace** (uploads ./app to shared location)
+5. Deploy to `lakebase-app-yash-dev` from shared workspace path
 6. Report status with deployment summary
 
 **Deployment time:** ~2-3 minutes
 
-**Key insight:** The deploy command requires source code to be IN THE WORKSPACE, not on the GitHub runner. The workflow syncs ./app to your workspace first, then deploys from there.
+**Key insights:** 
+- The deploy command requires source code to be IN THE WORKSPACE, not on the GitHub runner
+- Uses shared workspace location (`/Workspace/Shared/apps/ci-cd/`) instead of user-specific paths
+- Any team member can deploy without path conflicts
 
 ### Manual Deploy to Prod (`.github/workflows/deploy-prod.yml`)
 
