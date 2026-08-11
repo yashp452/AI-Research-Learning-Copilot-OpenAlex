@@ -1,0 +1,26 @@
+bundle:
+  name: research-copilot
+
+variables:
+  app_name:
+    description: Name of the Databricks App
+    default: lakebase-app-yash
+
+targets:
+  dev:
+    mode: development
+    default: true
+    variables:
+      app_name: lakebase-app-yash-dev
+  
+  prod:
+    mode: production
+    variables:
+      app_name: lakebase-app-yash
+
+resources:
+  apps:
+    research_copilot_app:
+      name: ${var.app_name}
+      description: AI Research & Learning Copilot with OpenAlex corpus and Lakebase PostgreSQL
+      source_code_path: ./app
