@@ -112,8 +112,16 @@ def _encoder():
     """Loaded lazily and cached. First call pays ~3s of model init; the app pays
     it once at first search rather than at import time."""
     from sentence_transformers import SentenceTransformer
+    import os
 
-    model = SentenceTransformer(MODEL_PATH)
+    # Try local path first (works in notebooks), fallback to HuggingFace
+    # (works in Databricks Apps where volume access may be restricted)
+    if os.path.exists(MODEL_PATH):
+        model = SentenceTransformer(MODEL_PATH)
+    else:
+        # Load from HuggingFace when local path not accessible
+        model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+    
     model.max_seq_length = MAX_SEQ_LENGTH
     return model
 

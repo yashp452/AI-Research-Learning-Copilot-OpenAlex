@@ -29,13 +29,75 @@ _SESSIONS: "OrderedDict[str, list]" = OrderedDict()
 _client = None
 
 
+class DatabricksOpenAIAdapter:
+    """Adapter to make WorkspaceClient look like an OpenAI client.
+    
+    This handles service principal authentication automatically through the SDK.
+    """
+    def __init__(self, workspace_client):
+        self.w = workspace_client
+        self.chat = self
+        self.completions = self
+    
+    def create(self, model, messages, tools=None, tool_choice="auto", **kwargs):
+        """Translate OpenAI chat.completions.create to Databricks serving endpoint query."""
+        from types import SimpleNamespace
+        import json
+        
+        # Build the request payload for Foundation Model endpoint
+        payload = {
+            "messages": messages,
+            "max_tokens": kwargs.get("max_tokens", 1200),
+            "temperature": kwargs.get("temperature", 0.1),
+        }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = tool_choice
+        
+        # Use the SDK's internal HTTP client to call the endpoint directly
+        # This handles service principal authentication automatically
+        url = f"/serving-endpoints/{model}/invocations"
+        response_data = self.w.api_client.do("POST", url, body=payload)
+        
+        # Convert tool_calls from dicts to objects with attributes
+        msg_data = response_data.get("choices", [{}])[0].get("message", {})
+        tool_calls_raw = msg_data.get("tool_calls")
+        tool_calls_obj = None
+        
+        if tool_calls_raw:
+            tool_calls_obj = [
+                SimpleNamespace(
+                    id=tc["id"],
+                    type=tc.get("type", "function"),
+                    function=SimpleNamespace(
+                        name=tc["function"]["name"],
+                        arguments=tc["function"]["arguments"]
+                    )
+                )
+                for tc in tool_calls_raw
+            ]
+        
+        # Convert to OpenAI-style response
+        return SimpleNamespace(
+            choices=[SimpleNamespace(
+                message=SimpleNamespace(
+                    role="assistant",
+                    content=msg_data.get("content"),
+                    tool_calls=tool_calls_obj
+                )
+            )]
+        )
+
+
 def llm_client():
     """Lazy so the app can boot and serve /health even if the endpoint is down."""
     global _client
     if _client is None:
         from databricks.sdk import WorkspaceClient
-
-        _client = WorkspaceClient().serving_endpoints.get_open_ai_client()
+        
+        # Wrap WorkspaceClient in an OpenAI-compatible adapter
+        # The SDK handles service principal auth automatically
+        _client = DatabricksOpenAIAdapter(WorkspaceClient())
     return _client
 
 
