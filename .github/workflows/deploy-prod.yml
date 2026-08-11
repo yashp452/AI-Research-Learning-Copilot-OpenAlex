@@ -47,7 +47,7 @@ jobs:
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
         run: |
           echo "Deploying to Production..."
-          python -m databricks.labs.apps deploy lakebase-app-yash \
+          databricks apps deploy lakebase-app-yash \
             --source-code-path ./app \
             --description "Production deployment from main branch - commit ${{ github.sha }}"
       
