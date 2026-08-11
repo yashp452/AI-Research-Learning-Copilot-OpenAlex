@@ -43,19 +43,19 @@ class DatabricksOpenAIAdapter:
         """Translate OpenAI chat.completions.create to Databricks serving endpoint query."""
         from types import SimpleNamespace
         
-        # Build the request payload in OpenAI format
-        payload = {
+        # Build the kwargs for the SDK query call
+        query_kwargs = {
+            "name": model,
             "messages": messages,
             "max_tokens": kwargs.get("max_tokens", 1200),
             "temperature": kwargs.get("temperature", 0.1),
         }
         if tools:
-            payload["tools"] = tools
-            payload["tool_choice"] = tool_choice
+            query_kwargs["tools"] = tools
+            query_kwargs["tool_choice"] = tool_choice
         
-        # Use the SDK's query method with inputs parameter
-        # Foundation Model endpoints expect the payload as 'inputs'
-        response = self.w.serving_endpoints.query(name=model, inputs=payload)
+        # Use the SDK's query method - pass parameters directly as kwargs
+        response = self.w.serving_endpoints.query(**query_kwargs)
         
         # Convert to OpenAI-style response
         return SimpleNamespace(
