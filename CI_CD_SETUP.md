@@ -39,21 +39,32 @@ Push to GitHub main → Auto-deploy to Dev → Test → Manual approve → Deplo
 
 ### Step 2: Add Secrets to GitHub Repository
 
-1. Go to your GitHub repository
-2. Navigate to: **Settings → Secrets and variables → Actions**
+**Important:** Find your workspace URL by looking at your browser address bar when logged into Databricks.
+It will be something like: `https://dbc-XXXXXXXX-XXXX.cloud.databricks.com`
+
+1. Go to your GitHub repository: `https://github.com/yashp452/AI-Research-Learning-Copilot-OpenAlex`
+2. Navigate to: **Settings** (repository settings, not your personal settings) **→ Secrets and variables → Actions**
 3. Click **New repository secret**
 
 Add these two secrets:
 
-| Secret Name | Value |
-| --- | --- |
-| `DATABRICKS_HOST` | `https://dbc-8b028016-8196.cloud.databricks.com` |
-| `DATABRICKS_TOKEN` | The token you copied from Step 1 |
+| Secret Name | Value | Notes |
+| --- | --- | --- |
+| `DATABRICKS_HOST` | `https://dbc-8b028016-8196.cloud.databricks.com` | Your workspace URL (check browser address bar) |
+| `DATABRICKS_TOKEN` | The token you copied from Step 1 | Keep this secure! |
+
+**Why these are needed:**
+- `DATABRICKS_HOST` tells the CLI which workspace to deploy to
+- `DATABRICKS_TOKEN` authenticates the deployment
+
+**Current Setup:** Both dev and prod apps deploy to the SAME workspace but in separate containers.
 
 **Screenshot guide:**
 ```
-GitHub Repo → Settings → Secrets and variables → Actions → New repository secret
+GitHub Repo → Settings (tab at top) → Secrets and variables → Actions → New repository secret
 ```
+
+**⚠️ Common Mistake:** Make sure you're in the **repository settings**, not your personal GitHub settings!
 
 ### Step 3: Set Up GitHub Environments (Optional but Recommended)
 
@@ -309,8 +320,74 @@ The workspace Git folder is no longer required for deployments!
 
 ---
 
+## 🏢 Advanced: Multi-Workspace Setup (Optional)
+
+**Current Setup:** Both dev and prod in the SAME workspace (https://dbc-8b028016-8196.cloud.databricks.com)
+
+**Enterprise Setup:** Dev and prod in SEPARATE workspaces
+
+If you ever need to deploy dev and prod to different workspaces:
+
+### Using GitHub Environments
+
+1. **Set up GitHub Environments:**
+   - Go to: Repository Settings → Environments
+   - Create environment: `dev`
+   - Create environment: `production`
+
+2. **Add environment-specific secrets:**
+
+   For `dev` environment:
+   ```
+   DATABRICKS_HOST = https://dev-workspace.cloud.databricks.com
+   DATABRICKS_TOKEN = <dev-workspace-token>
+   ```
+
+   For `production` environment:
+   ```
+   DATABRICKS_HOST = https://prod-workspace.cloud.databricks.com
+   DATABRICKS_TOKEN = <prod-workspace-token>
+   ```
+
+3. **Update workflow files to use environments:**
+
+   In `.github/workflows/deploy-dev.yml`:
+   ```yaml
+   jobs:
+     deploy-dev:
+       environment: dev  # ← Add this line
+       runs-on: ubuntu-latest
+   ```
+
+   In `.github/workflows/deploy-prod.yml`:
+   ```yaml
+   jobs:
+     deploy-prod:
+       environment: production  # ← Add this line
+       runs-on: ubuntu-latest
+   ```
+
+   GitHub will automatically use the environment-specific secrets!
+
+### Benefits of Multi-Workspace:
+- ✅ Complete isolation between dev and prod
+- ✅ Different access controls per workspace
+- ✅ Separate costs and resource management
+- ✅ Can have different workspace configurations
+
+### Downsides:
+- ❌ More complex to manage
+- ❌ Need separate tokens and permissions
+- ❌ Higher cost (two workspaces)
+- ❌ Data not shared between dev and prod
+
+**Recommendation:** Start with single workspace (current setup). Move to multi-workspace only when you need complete isolation.
+
+---
+
 ## 📚 Additional Resources
 
 - [GitHub Actions Documentation](https://docs.github.com/en/actions)
 - [Databricks Apps CLI Reference](https://docs.databricks.com/en/dev-tools/cli/apps-cli.html)
 - [Databricks Token Management](https://docs.databricks.com/en/dev-tools/auth/pat.html)
+- [GitHub Environments](https://docs.github.com/en/actions/deployment/targeting-different-environments/using-environments-for-deployment)
