@@ -59,13 +59,31 @@ class DatabricksOpenAIAdapter:
         url = f"/serving-endpoints/{model}/invocations"
         response_data = self.w.api_client.do("POST", url, body=payload)
         
+        # Convert tool_calls from dicts to objects with attributes
+        msg_data = response_data.get("choices", [{}])[0].get("message", {})
+        tool_calls_raw = msg_data.get("tool_calls")
+        tool_calls_obj = None
+        
+        if tool_calls_raw:
+            tool_calls_obj = [
+                SimpleNamespace(
+                    id=tc["id"],
+                    type=tc.get("type", "function"),
+                    function=SimpleNamespace(
+                        name=tc["function"]["name"],
+                        arguments=tc["function"]["arguments"]
+                    )
+                )
+                for tc in tool_calls_raw
+            ]
+        
         # Convert to OpenAI-style response
         return SimpleNamespace(
             choices=[SimpleNamespace(
                 message=SimpleNamespace(
                     role="assistant",
-                    content=response_data.get("choices", [{}])[0].get("message", {}).get("content"),
-                    tool_calls=response_data.get("choices", [{}])[0].get("message", {}).get("tool_calls")
+                    content=msg_data.get("content"),
+                    tool_calls=tool_calls_obj
                 )
             )]
         )
