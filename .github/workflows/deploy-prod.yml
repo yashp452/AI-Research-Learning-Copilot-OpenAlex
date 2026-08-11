@@ -8,6 +8,97 @@ on:
         required: true
         default: ''
 
+env:
+  APP_NAME: lakebase-app-yash
+
+jobs:
+  validate-input:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate confirmation
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "deploy" ]; then
+            echo "❌ Deployment cancelled. You must type 'deploy' to confirm."
+            exit 1
+          fi
+          echo "✅ Confirmation validated"
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: validate-input
+    environment:
+      name: production
+      url: https://lakebase-app-yash-7474658713176204.aws.databricksapps.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: Resolve workspace paths
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          set -euo pipefail
+          USER_NAME=$(databricks current-user me --output json | jq -r .userName)
+          echo "Authenticated as $USER_NAME"
+          echo "TARGET_PATH=/Workspace/Users/${USER_NAME}/apps/${APP_NAME}" >> "$GITHUB_ENV"
+
+      - name: Sync app source to workspace
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "Syncing ./app -> ${TARGET_PATH}"
+          databricks sync ./app "${TARGET_PATH}" --full
+
+      - name: Deploy app
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          set -euo pipefail
+          databricks apps deploy "${APP_NAME}" \
+            --source-code-path "${TARGET_PATH}"
+
+      - name: Report status
+        if: always()
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          databricks apps get "${APP_NAME}" --output json > status.json || true
+
+          {
+            echo "### Production App Deployment"
+            echo ""
+            echo "- App: \`${APP_NAME}\`"
+            echo "- Commit: \`${GITHUB_SHA::7}\`"
+            echo "- Source: \`${TARGET_PATH}\`"
+            if [ -s status.json ]; then
+              echo "- State: \`$(jq -r '.compute_status.state // "unknown"' status.json)\`"
+              echo "- URL: $(jq -r '.url // "unknown"' status.json)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Notify on Failure
+        if: failure()
+        run: |
+          echo "❌ Production deployment failed!"
+          echo "Check the logs above for details."
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "deploy" to confirm production deployment'
+        required: true
+        default: ''
+
 jobs:
   validate-input:
     runs-on: ubuntu-latest
@@ -41,7 +132,98 @@ jobs:
           curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
           echo "$HOME/.databricks/bin" >> $GITHUB_PATH
       
-      - name: Deploy to Production App
+      - name: Deploy to Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "deploy" to confirm production deployment'
+        required: true
+        default: ''
+
+env:
+  APP_NAME: lakebase-app-yash
+
+jobs:
+  validate-input:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate confirmation
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "deploy" ]; then
+            echo "❌ Deployment cancelled. You must type 'deploy' to confirm."
+            exit 1
+          fi
+          echo "✅ Confirmation validated"
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: validate-input
+    environment:
+      name: production
+      url: https://lakebase-app-yash-7474658713176204.aws.databricksapps.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: Resolve workspace paths
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          set -euo pipefail
+          USER_NAME=$(databricks current-user me --output json | jq -r .userName)
+          echo "Authenticated as $USER_NAME"
+          echo "TARGET_PATH=/Workspace/Users/${USER_NAME}/apps/${APP_NAME}" >> "$GITHUB_ENV"
+
+      - name: Sync app source to workspace
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "Syncing ./app -> ${TARGET_PATH}"
+          databricks sync ./app "${TARGET_PATH}" --full
+
+      - name: Deploy app
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          set -euo pipefail
+          databricks apps deploy "${APP_NAME}" \
+            --source-code-path "${TARGET_PATH}"
+
+      - name: Report status
+        if: always()
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          databricks apps get "${APP_NAME}" --output json > status.json || true
+
+          {
+            echo "### Production App Deployment"
+            echo ""
+            echo "- App: \`${APP_NAME}\`"
+            echo "- Commit: \`${GITHUB_SHA::7}\`"
+            echo "- Source: \`${TARGET_PATH}\`"
+            if [ -s status.json ]; then
+              echo "- State: \`$(jq -r '.compute_status.state // "unknown"' status.json)\`"
+              echo "- URL: $(jq -r '.url // "unknown"' status.json)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Notify on Failure
+        if: failure()
+        run: |
+          echo "❌ Production deployment failed!"
+          echo "Check the logs above for details." App
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}

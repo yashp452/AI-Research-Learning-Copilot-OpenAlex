@@ -3,51 +3,70 @@ name: Deploy to Dev
 on:
   push:
     branches: [main]
+    paths:
+      - 'app/**'
+      - '.github/workflows/deploy-dev.yml'
   workflow_dispatch:
 
+env:
+  APP_NAME: lakebase-app-yash-dev
+
 jobs:
-  deploy-dev:
+  deploy:
     runs-on: ubuntu-latest
     environment: dev
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-      
+
       - name: Install Databricks CLI
-        run: |
-          curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
-          echo "$HOME/.databricks/bin" >> $GITHUB_PATH
-      
-      - name: Deploy to Dev App
+        uses: databricks/setup-cli@main
+
+      - name: Resolve workspace paths
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
         run: |
-          echo "Deploying to Dev..."
-          databricks apps deploy lakebase-app-yash-dev \
-            --source-code-path ./app \
-            --description "Auto-deployed from main branch - commit ${{ github.sha }}"
-      
-      - name: Verify Deployment
+          set -euo pipefail
+          USER_NAME=$(databricks current-user me --output json | jq -r .userName)
+          echo "Authenticated as $USER_NAME"
+          echo "TARGET_PATH=/Workspace/Users/${USER_NAME}/apps/${APP_NAME}" >> "$GITHUB_ENV"
+
+      - name: Sync app source to workspace
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
         run: |
-          echo "Waiting for app to start..."
-          sleep 30
-          python -m databricks.labs.apps get lakebase-app-yash-dev
-      
-      - name: Post Deployment Info
-        if: success()
+          set -euo pipefail
+          echo "Syncing ./app -> ${TARGET_PATH}"
+          databricks sync ./app "${TARGET_PATH}" --full
+
+      - name: Deploy app
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
         run: |
-          echo "✅ Dev deployment successful!"
-          echo "App: lakebase-app-yash-dev"
-          echo "Commit: ${{ github.sha }}"
-          echo "Branch: ${{ github.ref_name }}"
-          echo "URL: https://lakebase-app-yash-dev-7474658713176204.aws.databricksapps.com"
+          set -euo pipefail
+          databricks apps deploy "${APP_NAME}" \
+            --source-code-path "${TARGET_PATH}"
+
+      - name: Report status
+        if: always()
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          databricks apps get "${APP_NAME}" --output json > status.json || true
+
+          {
+            echo "### Dev App Deployment"
+            echo ""
+            echo "- App: \`${APP_NAME}\`"
+            echo "- Commit: \`${GITHUB_SHA::7}\`"
+            echo "- Source: \`${TARGET_PATH}\`"
+            if [ -s status.json ]; then
+              echo "- State: \`$(jq -r '.compute_status.state // "unknown"' status.json)\`"
+              echo "- URL: $(jq -r '.url // "unknown"' status.json)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
