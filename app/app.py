@@ -29,26 +29,53 @@ _SESSIONS: "OrderedDict[str, list]" = OrderedDict()
 _client = None
 
 
+class DatabricksOpenAIAdapter:
+    """Adapter to make WorkspaceClient look like an OpenAI client.
+    
+    This handles service principal authentication automatically through the SDK.
+    """
+    def __init__(self, workspace_client):
+        self.w = workspace_client
+        self.chat = self
+        self.completions = self
+    
+    def create(self, model, messages, tools=None, tool_choice="auto", **kwargs):
+        """Translate OpenAI chat.completions.create to Databricks serving endpoint query."""
+        from types import SimpleNamespace
+        
+        payload = {
+            "messages": messages,
+            "max_tokens": kwargs.get("max_tokens", 1200),
+            "temperature": kwargs.get("temperature", 0.1),
+        }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = tool_choice
+        
+        # Use the SDK's query method which handles auth automatically
+        response = self.w.serving_endpoints.query(model, **payload)
+        
+        # Convert to OpenAI-style response
+        return SimpleNamespace(
+            choices=[SimpleNamespace(
+                message=SimpleNamespace(
+                    role="assistant",
+                    content=response.choices[0].message.content if hasattr(response.choices[0].message, 'content') else None,
+                    tool_calls=getattr(response.choices[0].message, 'tool_calls', None)
+                )
+            )]
+        )
+
+
 def llm_client():
     """Lazy so the app can boot and serve /health even if the endpoint is down."""
     global _client
     if _client is None:
-        from openai import OpenAI
         from databricks.sdk import WorkspaceClient
         
-        w = WorkspaceClient()
-        # For service principals in Databricks Apps, get OAuth token through the SDK
-        # The SDK's credential provider handles M2M OAuth automatically
-        credentials = w.config.authenticate()
-        if callable(credentials):
-            token = credentials()
-        else:
-            token = str(credentials) if credentials else None
-            
-        _client = OpenAI(
-            api_key=token,
-            base_url=f"{w.config.host}/serving-endpoints"
-        )
+        # Wrap WorkspaceClient in an OpenAI-compatible adapter
+        # The SDK handles service principal auth automatically
+        _client = DatabricksOpenAIAdapter(WorkspaceClient())
     return _client
 
 
