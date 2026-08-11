@@ -1,0 +1,117 @@
+# Databricks Asset Bundle (DAB) configuration
+# This defines a Databricks Workflow/Job that runs notebooks sequentially
+
+bundle:
+  name: research-copilot-pipeline
+
+# Variables used throughout the bundle
+variables:
+  catalog:
+    description: Unity Catalog name
+    default: main
+  
+  schema:
+    description: Schema name
+    default: default
+  
+  mailto:
+    description: Email for OpenAlex API (required by their terms)
+    default: ${workspace.current_user.userName}
+
+# Different deployment targets (dev, prod, etc.)
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: ${workspace.host}
+
+# The actual Databricks Workflow/Job definition
+resources:
+  jobs:
+    research_copilot_pipeline:
+      name: "[${bundle.target}] Research Copilot Pipeline"
+      description: >
+        OpenAlex ingest to bronze, silver cleanup and abstract reconstruction,
+        gold with MiniLM embeddings, then upsert into Lakebase PostgreSQL.
+      
+      # Free Edition: serverless compute only, no job_clusters allowed
+      
+      schedule:
+        # Weekly runs (OpenAlex doesn't change daily, saves compute quota)
+        quartz_cron_expression: "0 0 6 ? * SUN"
+        timezone_id: "Asia/Kolkata"
+        pause_status: PAUSED  # Start paused, enable when ready
+      
+      email_notifications:
+        on_failure:
+          - ${workspace.current_user.userName}
+      
+      max_concurrent_runs: 1
+      
+      # Job-level parameters (can be overridden per run)
+      parameters:
+        - name: limit_rows
+          default: "0"  # 0 = unlimited, >0 for testing
+        
+        - name: max_pages
+          default: "100"  # OpenAlex pages to fetch
+        
+        - name: concept_id
+          default: "C119857082"  # Machine Learning concept
+        
+        - name: from_date
+          default: "2023-01-01"  # Papers published after this date
+      
+      # Sequential notebook tasks
+      tasks:
+        # Task 1: Ingest papers from OpenAlex API
+        - task_key: ingest_openalex
+          notebook_task:
+            notebook_path: ./notebooks/01_ingest_openalex.py
+            base_parameters:
+              mailto: ${var.mailto}
+              concept_id: "{{job.parameters.concept_id}}"
+              from_date: "{{job.parameters.from_date}}"
+              max_pages: "{{job.parameters.max_pages}}"
+              volume_path: /Volumes/${var.catalog}/${var.schema}/raw
+              bronze_table: ${var.catalog}.${var.schema}.bronze_openalex_works
+        
+        # Task 2: Clean and transform to silver
+        - task_key: build_silver
+          depends_on:
+            - task_key: ingest_openalex
+          notebook_task:
+            notebook_path: ./notebooks/02_silver.py
+            base_parameters:
+              bronze_table: ${var.catalog}.${var.schema}.bronze_openalex_works
+              silver_table: ${var.catalog}.${var.schema}.silver_papers
+              authors_table: ${var.catalog}.${var.schema}.silver_paper_authors
+              min_abstract_words: "40"
+              max_author_names: "8"
+        
+        # Task 3: Generate embeddings for gold layer
+        - task_key: embed_gold
+          depends_on:
+            - task_key: build_silver
+          notebook_task:
+            notebook_path: ./notebooks/03_gold_embed_load.py
+            base_parameters:
+              silver_table: ${var.catalog}.${var.schema}.silver_papers
+              gold_table: ${var.catalog}.${var.schema}.gold_paper_documents
+              embedding_model: sentence-transformers/all-MiniLM-L6-v2
+              model_volume_path: /Volumes/${var.catalog}/${var.schema}/raw/models/all-MiniLM-L6-v2
+              limit_rows: "{{job.parameters.limit_rows}}"
+              embed_partitions: "8"
+        
+        # Task 4: Load to Lakebase PostgreSQL
+        - task_key: load_lakebase
+          depends_on:
+            - task_key: embed_gold
+          notebook_task:
+            notebook_path: ./notebooks/04_load_lakebase.py
+            base_parameters:
+              gold_table: ${var.catalog}.${var.schema}.gold_paper_documents
+              lakebase_secret_scope: database
+              lakebase_secret_key: lakebase-url
+              batch_size: "500"
