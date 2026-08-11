@@ -45,7 +45,8 @@ jobs:
           set -euo pipefail
           USER_NAME=$(databricks current-user me --output json | jq -r .userName)
           echo "Authenticated as $USER_NAME"
-          echo "TARGET_PATH=/Workspace/Users/${USER_NAME}/apps/${APP_NAME}" >> "$GITHUB_ENV"
+          # Use shared deployment location instead of user-specific
+          echo "TARGET_PATH=/Workspace/Shared/apps/ci-cd/${APP_NAME}" >> "$GITHUB_ENV"
 
       - name: Sync app source to workspace
         env:
