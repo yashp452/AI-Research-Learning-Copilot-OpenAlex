@@ -42,28 +42,30 @@ class DatabricksOpenAIAdapter:
     def create(self, model, messages, tools=None, tool_choice="auto", **kwargs):
         """Translate OpenAI chat.completions.create to Databricks serving endpoint query."""
         from types import SimpleNamespace
+        import json
         
-        # Build the kwargs for the SDK query call
-        query_kwargs = {
-            "name": model,
+        # Build the request payload for Foundation Model endpoint
+        payload = {
             "messages": messages,
             "max_tokens": kwargs.get("max_tokens", 1200),
             "temperature": kwargs.get("temperature", 0.1),
         }
         if tools:
-            query_kwargs["tools"] = tools
-            query_kwargs["tool_choice"] = tool_choice
+            payload["tools"] = tools
+            payload["tool_choice"] = tool_choice
         
-        # Use the SDK's query method - pass parameters directly as kwargs
-        response = self.w.serving_endpoints.query(**query_kwargs)
+        # Use the SDK's internal HTTP client to call the endpoint directly
+        # This handles service principal authentication automatically
+        url = f"/serving-endpoints/{model}/invocations"
+        response_data = self.w.api_client.do("POST", url, body=payload)
         
         # Convert to OpenAI-style response
         return SimpleNamespace(
             choices=[SimpleNamespace(
                 message=SimpleNamespace(
                     role="assistant",
-                    content=response.choices[0].message.content if hasattr(response.choices[0].message, 'content') else None,
-                    tool_calls=getattr(response.choices[0].message, 'tool_calls', None)
+                    content=response_data.get("choices", [{}])[0].get("message", {}).get("content"),
+                    tool_calls=response_data.get("choices", [{}])[0].get("message", {}).get("tool_calls")
                 )
             )]
         )
