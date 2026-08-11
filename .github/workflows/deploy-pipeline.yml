@@ -1,0 +1,199 @@
+name: Deploy and Run Research Pipeline
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'notebooks/**'
+      - 'databricks.yml'
+      - '.github/workflows/deploy-pipeline.yml'
+  schedule:
+    # Run every Sunday at 6 AM IST (matches job schedule)
+    - cron: '30 0 * * 0'  # 00:30 UTC = 6:00 AM IST
+  workflow_dispatch:
+    inputs:
+      limit_rows:
+        description: 'Limit rows (0 = unlimited)'
+        required: false
+        default: '0'
+      max_pages:
+        description: 'Max OpenAlex pages to fetch'
+        required: false
+        default: '100'
+      concept_id:
+        description: 'OpenAlex concept ID'
+        required: false
+        default: 'C119857082'
+      from_date:
+        description: 'Filter papers from date (YYYY-MM-DD)'
+        required: false
+        default: '2023-01-01'
+
+env:
+  BUNDLE_TARGET: dev
+
+jobs:
+  deploy-and-run:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: Validate bundle
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "Validating Databricks Asset Bundle..."
+          databricks bundle validate --target "${BUNDLE_TARGET}"
+
+      - name: Deploy bundle
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "Deploying bundle to target: ${BUNDLE_TARGET}"
+          databricks bundle deploy --target "${BUNDLE_TARGET}"
+
+      - name: Get job ID
+        id: get-job
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Extract job name from databricks.yml
+          JOB_NAME="[${BUNDLE_TARGET}] Research Copilot Pipeline"
+          echo "Looking for job: ${JOB_NAME}"
+          
+          # List jobs and find the deployed one
+          JOB_ID=$(databricks jobs list --output json | \
+            jq -r --arg name "${JOB_NAME}" '.jobs[] | select(.settings.name == $name) | .job_id' | \
+            head -n1)
+          
+          if [ -z "${JOB_ID}" ]; then
+            echo "Error: Could not find job '${JOB_NAME}'"
+            exit 1
+          fi
+          
+          echo "Found job ID: ${JOB_ID}"
+          echo "job_id=${JOB_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger job run
+        id: trigger-run
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+          JOB_ID: ${{ steps.get-job.outputs.job_id }}
+        run: |
+          set -euo pipefail
+          
+          # Build parameters JSON
+          PARAMS_JSON=$(jq -n \
+            --arg limit "${{ github.event.inputs.limit_rows || '0' }}" \
+            --arg pages "${{ github.event.inputs.max_pages || '100' }}" \
+            --arg concept "${{ github.event.inputs.concept_id || 'C119857082' }}" \
+            --arg date "${{ github.event.inputs.from_date || '2023-01-01' }}" \
+            '{
+              limit_rows: $limit,
+              max_pages: $pages,
+              concept_id: $concept,
+              from_date: $date
+            }')
+          
+          echo "Triggering job ${JOB_ID} with parameters:"
+          echo "${PARAMS_JSON}" | jq .
+          
+          # Trigger the job run
+          RUN_OUTPUT=$(databricks jobs run-now \
+            --job-id "${JOB_ID}" \
+            --python-params "${PARAMS_JSON}" \
+            --output json)
+          
+          RUN_ID=$(echo "${RUN_OUTPUT}" | jq -r '.run_id')
+          echo "Started run ID: ${RUN_ID}"
+          echo "run_id=${RUN_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Monitor job run
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+          RUN_ID: ${{ steps.trigger-run.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          
+          echo "Monitoring run ${RUN_ID}..."
+          MAX_WAIT=7200  # 2 hours max
+          ELAPSED=0
+          
+          while [ $ELAPSED -lt $MAX_WAIT ]; do
+            RUN_INFO=$(databricks jobs runs get --run-id "${RUN_ID}" --output json)
+            STATE=$(echo "${RUN_INFO}" | jq -r '.state.life_cycle_state')
+            RESULT=$(echo "${RUN_INFO}" | jq -r '.state.result_state // "PENDING"')
+            
+            echo "[${ELAPSED}s] State: ${STATE}, Result: ${RESULT}"
+            
+            # Check if run is terminal
+            if [ "${STATE}" == "TERMINATED" ] || [ "${STATE}" == "SKIPPED" ] || [ "${STATE}" == "INTERNAL_ERROR" ]; then
+              echo "Run completed with state: ${STATE}, result: ${RESULT}"
+              
+              if [ "${RESULT}" == "SUCCESS" ]; then
+                echo "✅ Pipeline run succeeded!"
+                exit 0
+              else
+                echo "❌ Pipeline run failed with result: ${RESULT}"
+                exit 1
+              fi
+            fi
+            
+            sleep 30
+            ELAPSED=$((ELAPSED + 30))
+          done
+          
+          echo "⚠️ Run monitoring timed out after ${MAX_WAIT} seconds"
+          exit 1
+
+      - name: Report status
+        if: always()
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+          JOB_ID: ${{ steps.get-job.outputs.job_id }}
+          RUN_ID: ${{ steps.trigger-run.outputs.run_id }}
+        run: |
+          set +e  # Don't fail on errors in this step
+          
+          if [ -n "${RUN_ID}" ]; then
+            RUN_INFO=$(databricks jobs runs get --run-id "${RUN_ID}" --output json)
+            STATE=$(echo "${RUN_INFO}" | jq -r '.state.life_cycle_state // "unknown"')
+            RESULT=$(echo "${RUN_INFO}" | jq -r '.state.result_state // "unknown"')
+            RUN_URL=$(echo "${RUN_INFO}" | jq -r '.run_page_url // "unknown"')
+          else
+            STATE="not_started"
+            RESULT="not_started"
+            RUN_URL="N/A"
+          fi
+          
+          {
+            echo "### Research Pipeline Deployment"
+            echo ""
+            echo "- **Target**: \`${BUNDLE_TARGET}\`"
+            echo "- **Commit**: \`${GITHUB_SHA::7}\`"
+            echo "- **Job ID**: \`${JOB_ID}\`"
+            echo "- **Run ID**: \`${RUN_ID}\`"
+            echo "- **State**: \`${STATE}\`"
+            echo "- **Result**: \`${RESULT}\`"
+            echo "- **Run URL**: ${RUN_URL}"
+            echo ""
+            echo "#### Parameters"
+            echo "- \`limit_rows\`: ${{ github.event.inputs.limit_rows || '0' }}"
+            echo "- \`max_pages\`: ${{ github.event.inputs.max_pages || '100' }}"
+            echo "- \`concept_id\`: ${{ github.event.inputs.concept_id || 'C119857082' }}"
+            echo "- \`from_date\`: ${{ github.event.inputs.from_date || '2023-01-01' }}"
+          } >> "$GITHUB_STEP_SUMMARY"
