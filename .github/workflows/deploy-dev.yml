@@ -40,7 +40,7 @@ jobs:
         run: |
           echo "Waiting for app to start..."
           sleep 30
-          databricks apps get lakebase-app-yash-dev
+          python -m databricks.labs.apps get lakebase-app-yash-dev
       
       - name: Post Deployment Info
         if: success()
