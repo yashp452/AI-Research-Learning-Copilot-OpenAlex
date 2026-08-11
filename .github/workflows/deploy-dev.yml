@@ -1,0 +1,60 @@
+name: Deploy to Dev
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy-dev:
+    runs-on: ubuntu-latest
+    environment: dev
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install Databricks CLI
+        run: |
+          pip install databricks-cli databricks-sdk
+      
+      - name: Configure Databricks CLI
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          echo "Setting up Databricks CLI..."
+          databricks configure --token <<EOF
+          $DATABRICKS_HOST
+          $DATABRICKS_TOKEN
+          EOF
+      
+      - name: Deploy to Dev App
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          echo "Deploying to Dev..."
+          databricks apps deploy lakebase-app-yash-dev \
+            --source-code-path ./app \
+            --description "Auto-deployed from main branch - commit ${{ github.sha }}"
+      
+      - name: Verify Deployment
+        run: |
+          echo "Waiting for app to start..."
+          sleep 30
+          databricks apps get lakebase-app-yash-dev
+      
+      - name: Post Deployment Info
+        if: success()
+        run: |
+          echo "✅ Dev deployment successful!"
+          echo "App: lakebase-app-yash-dev"
+          echo "Commit: ${{ github.sha }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "URL: https://lakebase-app-yash-dev-7474658713176204.aws.databricksapps.com"

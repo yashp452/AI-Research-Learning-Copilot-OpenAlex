@@ -1,0 +1,83 @@
+name: Deploy to Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "deploy" to confirm production deployment'
+        required: true
+        default: ''
+
+jobs:
+  validate-input:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate confirmation
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "deploy" ]; then
+            echo "❌ Deployment cancelled. You must type 'deploy' to confirm."
+            exit 1
+          fi
+          echo "✅ Confirmation validated"
+
+  deploy-prod:
+    runs-on: ubuntu-latest
+    needs: validate-input
+    environment:
+      name: production
+      url: https://lakebase-app-yash-7474658713176204.aws.databricksapps.com
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install Databricks CLI
+        run: |
+          pip install databricks-cli databricks-sdk
+      
+      - name: Configure Databricks CLI
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          echo "Setting up Databricks CLI..."
+          databricks configure --token <<EOF
+          $DATABRICKS_HOST
+          $DATABRICKS_TOKEN
+          EOF
+      
+      - name: Deploy to Production App
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          echo "Deploying to Production..."
+          databricks apps deploy lakebase-app-yash \
+            --source-code-path ./app \
+            --description "Production deployment from main branch - commit ${{ github.sha }}"
+      
+      - name: Verify Deployment
+        run: |
+          echo "Waiting for app to start..."
+          sleep 30
+          databricks apps get lakebase-app-yash
+      
+      - name: Post Deployment Info
+        if: success()
+        run: |
+          echo "✅ Production deployment successful!"
+          echo "App: lakebase-app-yash"
+          echo "Commit: ${{ github.sha }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "URL: https://lakebase-app-yash-7474658713176204.aws.databricksapps.com"
+      
+      - name: Notify on Failure
+        if: failure()
+        run: |
+          echo "❌ Production deployment failed!"
+          echo "Check the logs above for details."

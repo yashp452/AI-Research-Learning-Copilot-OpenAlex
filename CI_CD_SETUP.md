@@ -1,0 +1,316 @@
+# CI/CD Setup Guide - Production Ready
+
+## 🎯 The Problem You Identified
+
+**Current Setup (NOT production-ready):**
+```
+Developer edits workspace → Manual deploy → Apps update
+```
+- ❌ Tied to user's workspace path
+- ❌ Manual deployment required
+- ❌ No automated testing
+- ❌ No deployment history
+- ❌ Single point of failure (your account)
+
+**New CI/CD Setup (Production-ready):**
+```
+Push to GitHub main → Auto-deploy to Dev → Test → Manual approve → Deploy to Prod
+```
+- ✅ GitHub is source of truth
+- ✅ Automatic dev deployments
+- ✅ Manual prod approvals
+- ✅ Full audit trail
+- ✅ Team can deploy (not just you)
+
+---
+
+## 📋 One-Time Setup (Do This Once)
+
+### Step 1: Create Databricks Access Token
+
+1. Go to Databricks workspace settings
+2. Navigate to: **User Settings → Developer → Access tokens**
+3. Click **Generate new token**
+4. Name it: `GitHub_Actions_Deploy`
+5. Lifetime: 90 days (or longer)
+6. Copy the token (you won't see it again!)
+
+**Important:** This token lets GitHub deploy apps. Keep it secure!
+
+### Step 2: Add Secrets to GitHub Repository
+
+1. Go to your GitHub repository
+2. Navigate to: **Settings → Secrets and variables → Actions**
+3. Click **New repository secret**
+
+Add these two secrets:
+
+| Secret Name | Value |
+| --- | --- |
+| `DATABRICKS_HOST` | `https://dbc-8b028016-8196.cloud.databricks.com` |
+| `DATABRICKS_TOKEN` | The token you copied from Step 1 |
+
+**Screenshot guide:**
+```
+GitHub Repo → Settings → Secrets and variables → Actions → New repository secret
+```
+
+### Step 3: Set Up GitHub Environments (Optional but Recommended)
+
+This adds an extra approval step for prod deployments.
+
+1. Go to: **Settings → Environments**
+2. Create environment: `dev`
+   - No protection rules needed
+3. Create environment: `production`
+   - Check: **Required reviewers**
+   - Add yourself (or team members who can approve prod deploys)
+
+---
+
+## 🚀 New Workflow
+
+### Development Cycle
+
+```bash
+# 1. Create feature branch
+git checkout -b feature/improved-search
+
+# 2. Make changes
+vim app/tools.py
+
+# 3. Test locally (optional)
+python app/app.py
+
+# 4. Commit and push
+git add .
+git commit -m "Improve search results"
+git push origin feature/improved-search
+
+# 5. Create Pull Request on GitHub
+# Review with team → Merge to main
+
+# 6. GitHub Actions AUTOMATICALLY deploys to dev!
+#    (No manual step needed)
+```
+
+**What happens automatically:**
+1. You merge PR to main
+2. GitHub Actions triggers
+3. Code deployed to `lakebase-app-yash-dev`
+4. You get notification (success/failure)
+
+### Production Release
+
+When dev is tested and ready:
+
+1. Go to GitHub: **Actions → Deploy to Production**
+2. Click **Run workflow**
+3. Type `deploy` in the confirmation box
+4. Click **Run workflow**
+5. (If you set up environments) Approve the deployment
+6. GitHub Actions deploys to `lakebase-app-yash`
+
+---
+
+## 📊 Workflow Details
+
+### Auto-Deploy to Dev (`.github/workflows/deploy-dev.yml`)
+
+**Triggers:**
+- Every push to `main` branch
+- Manual trigger via GitHub Actions UI
+
+**Steps:**
+1. Checkout code from GitHub
+2. Install Databricks CLI
+3. Deploy to `lakebase-app-yash-dev`
+4. Verify deployment
+5. Report status
+
+**Deployment time:** ~2-3 minutes
+
+### Manual Deploy to Prod (`.github/workflows/deploy-prod.yml`)
+
+**Triggers:**
+- Manual trigger only (via GitHub Actions UI)
+- Requires typing "deploy" to confirm
+
+**Steps:**
+1. Validate confirmation
+2. (Optional) Wait for approval if environment protection enabled
+3. Checkout code from GitHub
+4. Install Databricks CLI
+5. Deploy to `lakebase-app-yash`
+6. Verify deployment
+7. Report status
+
+**Deployment time:** ~2-3 minutes (+ approval wait time)
+
+---
+
+## 🔒 Security Benefits
+
+### Before (User Workspace Path)
+- ❌ Deployment tied to your Databricks account
+- ❌ If you leave the team, deployments break
+- ❌ No separation between dev work and prod source
+- ❌ Anyone with workspace access can modify source
+
+### After (GitHub CI/CD)
+- ✅ GitHub is source of truth
+- ✅ Team members can deploy with proper GitHub access
+- ✅ All changes tracked in Git history
+- ✅ Deployment token can be rotated independently
+- ✅ Pull request review before any prod changes
+- ✅ Audit trail of who deployed what and when
+
+---
+
+## 🧪 Testing the Setup
+
+### Test 1: Dev Auto-Deploy
+
+```bash
+# Make a trivial change
+echo "# Test change" >> app/README.md
+
+# Commit and push to main
+git add app/README.md
+git commit -m "Test CI/CD: dev auto-deploy"
+git push origin main
+
+# Check GitHub Actions
+# Go to: GitHub → Actions → Watch the "Deploy to Dev" workflow
+```
+
+Expected result: Dev app updates automatically in 2-3 minutes
+
+### Test 2: Prod Manual Deploy
+
+1. Go to GitHub: **Actions → Deploy to Production**
+2. Click **Run workflow**
+3. Type `deploy`
+4. Click **Run workflow**
+5. Watch the workflow execute
+
+Expected result: Prod app updates after manual confirmation
+
+---
+
+## 📈 Monitoring Deployments
+
+### Via GitHub Actions
+- **Real-time logs:** GitHub → Actions → Click on workflow run
+- **Deployment history:** All runs listed with status
+- **Failure notifications:** GitHub emails you on failures
+
+### Via Databricks
+- **Check app status:**
+  ```bash
+  databricks apps get lakebase-app-yash-dev
+  databricks apps get lakebase-app-yash
+  ```
+- **View app logs:**
+  ```bash
+  databricks apps logs lakebase-app-yash-dev
+  databricks apps logs lakebase-app-yash
+  ```
+
+---
+
+## 🆘 Troubleshooting
+
+### "Error: Invalid credentials"
+- **Cause:** GitHub secrets not set or token expired
+- **Fix:** 
+  1. Generate new Databricks token
+  2. Update `DATABRICKS_TOKEN` secret in GitHub
+  3. Re-run workflow
+
+### "Error: App not found"
+- **Cause:** App name mismatch
+- **Fix:** Check app names match exactly:
+  - Dev: `lakebase-app-yash-dev`
+  - Prod: `lakebase-app-yash`
+
+### "Error: Permission denied"
+- **Cause:** Databricks token doesn't have app deployment permissions
+- **Fix:**
+  1. Create token from an account with app permissions
+  2. Or grant permissions to the service principal
+  3. Update `DATABRICKS_TOKEN` secret
+
+### Dev workflow not triggering
+- **Cause:** Workflow file not in main branch
+- **Fix:** Make sure `.github/workflows/deploy-dev.yml` exists in main
+
+### Want to disable auto-deploy temporarily?
+- **Option 1:** Comment out the `push:` trigger in `deploy-dev.yml`
+- **Option 2:** Disable the workflow in GitHub Actions UI
+
+---
+
+## 🔄 Migration from Old Workflow
+
+### What Changes
+
+**Before:**
+```bash
+# From your workspace
+cd /Workspace/Users/inimitablelol@gmail.com/AI-Research-Learning-Copilot-OpenAlex
+databricks apps deploy lakebase-app-yash-dev --source-code-path ./app
+```
+
+**After:**
+```bash
+# From anywhere - just push to GitHub!
+git push origin main
+# Dev automatically deploys
+# Use GitHub UI for prod deploys
+```
+
+### Clean Up (Optional)
+
+You can now work from anywhere, not just Databricks workspace:
+
+```bash
+# Clone to your local machine
+git clone https://github.com/yashp452/AI-Research-Learning-Copilot-OpenAlex.git
+cd AI-Research-Learning-Copilot-OpenAlex
+
+# Make changes locally
+vim app/tools.py
+
+# Push to GitHub
+git add .
+git commit -m "Update from local machine"
+git push origin main
+# Dev automatically deploys!
+```
+
+The workspace Git folder is no longer required for deployments!
+
+---
+
+## 🎯 Next Steps
+
+1. **Set up secrets** (5 minutes)
+   - DATABRICKS_HOST
+   - DATABRICKS_TOKEN
+
+2. **Test dev auto-deploy** (make a small change to main)
+
+3. **Test prod manual deploy** (use GitHub Actions UI)
+
+4. **Set up environment protection** (optional, for approval workflow)
+
+5. **Update team on new process** (no more manual deploys!)
+
+---
+
+## 📚 Additional Resources
+
+- [GitHub Actions Documentation](https://docs.github.com/en/actions)
+- [Databricks Apps CLI Reference](https://docs.databricks.com/en/dev-tools/cli/apps-cli.html)
+- [Databricks Token Management](https://docs.databricks.com/en/dev-tools/auth/pat.html)
