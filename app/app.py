@@ -2,6 +2,8 @@
 
 Runs on Databricks Apps. All agent behaviour lives in agent/tools.py and
 agent/loop.py; this module is HTTP plumbing and identity resolution.
+
+CI/CD Test: Workflow validation
 """
 
 from __future__ import annotations
