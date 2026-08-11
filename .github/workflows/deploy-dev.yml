@@ -19,9 +19,9 @@ jobs:
         with:
           python-version: '3.10'
       
-      - name: Install Databricks CLI
+      - name: Install Databricks SDK
         run: |
-          pip install databricks-cli databricks-sdk
+          pip install databricks-sdk
       
       - name: Configure Databricks CLI
         env:
