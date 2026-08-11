@@ -10,13 +10,23 @@ targets:
   dev:
     mode: development
     default: true
+    workspace:
+      host: https://dbc-8b028016-8196.cloud.databricks.com
     variables:
       app_name: lakebase-app-yash-dev
+    # After deployment, grant volume access:
+    # GRANT READ VOLUME ON VOLUME workspace.research_copilot.raw TO `6faa8167-0a98-40c9-8e78-ae3173cbd9eb`;
   
   prod:
     mode: production
+    workspace:
+      host: https://dbc-8b028016-8196.cloud.databricks.com
+      # To deploy to a different workspace, change host:
+      # host: https://your-prod-workspace.cloud.databricks.com
     variables:
       app_name: lakebase-app-yash
+    # After deployment to new workspace, grant volume access:
+    # GRANT READ VOLUME ON VOLUME workspace.research_copilot.raw TO `<prod-app-service-principal-id>`;
 
 resources:
   apps:
