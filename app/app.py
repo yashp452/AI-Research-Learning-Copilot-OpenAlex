@@ -33,9 +33,14 @@ def llm_client():
     """Lazy so the app can boot and serve /health even if the endpoint is down."""
     global _client
     if _client is None:
+        from openai import OpenAI
         from databricks.sdk import WorkspaceClient
 
-        _client = WorkspaceClient().serving_endpoints.get_open_ai_client()
+        w = WorkspaceClient()
+        _client = OpenAI(
+            api_key=w.config.token,
+            base_url=f"{w.config.host}/serving-endpoints"
+        )
     return _client
 
 
