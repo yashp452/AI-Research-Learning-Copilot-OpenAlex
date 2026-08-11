@@ -397,3 +397,125 @@ If you ever need to deploy dev and prod to different workspaces:
 - [Databricks Apps CLI Reference](https://docs.databricks.com/en/dev-tools/cli/apps-cli.html)
 - [Databricks Token Management](https://docs.databricks.com/en/dev-tools/auth/pat.html)
 - [GitHub Environments](https://docs.github.com/en/actions/deployment/targeting-different-environments/using-environments-for-deployment)
+
+---
+
+## 🔄 Pipeline Orchestration (NEW!)
+
+### Overview
+
+The **deploy-pipeline.yml** workflow orchestrates your 4-stage Research Copilot Pipeline:
+
+1. **ingest_openalex** - Fetch papers from OpenAlex API → bronze table
+2. **build_silver** - Clean data, reconstruct abstracts → silver tables
+3. **embed_gold** - Generate MiniLM embeddings → gold table
+4. **load_lakebase** - Upsert into Lakebase PostgreSQL
+
+### Trigger Options
+
+**1. Automatic (Push to main)**
+```bash
+# Any change to notebooks or databricks.yml triggers deployment
+git push origin main
+```
+
+**2. Scheduled (Weekly)**
+- Runs every Sunday at 6:00 AM IST
+- Keeps your research corpus fresh
+- Enable by setting `pause_status: UNPAUSED` in databricks.yml
+
+**3. Manual (with parameters)**
+1. Go to: **Actions → Deploy and Run Research Pipeline**
+2. Click **Run workflow**
+3. Override parameters:
+   - `limit_rows`: 0 = unlimited, 100 = testing
+   - `max_pages`: 100 = ~20K papers
+   - `concept_id`: C119857082 = Machine Learning
+   - `from_date`: 2023-01-01
+
+### Parameters Explained
+
+| Parameter | Default | Purpose |
+|-----------|---------|---------|
+| `limit_rows` | 0 | Papers to embed (0 = unlimited) |
+| `max_pages` | 100 | OpenAlex pages to fetch (~200 papers/page) |
+| `concept_id` | C119857082 | Filter by OpenAlex concept (ML) |
+| `from_date` | 2023-01-01 | Only papers published after this date |
+
+### Testing First Run
+
+Use small parameters to verify everything works:
+
+```yaml
+limit_rows: 100      # Embed only 100 papers
+max_pages: 1         # Fetch only 1 page (~200 papers)
+concept_id: C119857082
+from_date: 2024-01-01  # Recent papers only
+```
+
+This completes in ~10-15 minutes and uses minimal compute.
+
+### Production Run
+
+For weekly scheduled runs:
+
+```yaml
+limit_rows: 0        # Embed everything
+max_pages: 100       # ~20K papers
+concept_id: C119857082
+from_date: 2023-01-01
+```
+
+### Monitoring
+
+The workflow monitors the job run and reports:
+- Current state (RUNNING, TERMINATED)
+- Result (SUCCESS, FAILED)
+- Run URL (link to Databricks UI)
+- All parameters used
+- Task-by-task progress
+
+Maximum wait: 2 hours
+
+### Common Issues
+
+**OpenAlex API Rate Limit**
+- Add longer delays in notebook 01
+- Reduce `max_pages`
+
+**Missing Volume/Table**
+- Run notebooks manually first to create structure
+- Verify databricks.yml paths match
+
+**Lakebase Connection**
+- Check secret scope and key names
+- Verify Lakebase endpoint is running
+
+**Embedding Model Download**
+- First run downloads model (slow)
+- Subsequent runs use cached model
+
+### Cost Considerations
+
+**Free Edition Compute Quota:**
+- Weekly runs are reasonable
+- Daily runs may exhaust quota
+- Use small parameters for testing
+
+---
+
+## 📋 Complete Workflow Summary
+
+You now have **3 GitHub Actions workflows**:
+
+1. **deploy-dev.yml** - Auto-deploy dev app on push
+2. **deploy-prod.yml** - Manual deploy production app
+3. **deploy-pipeline.yml** - Orchestrate data pipeline
+
+All workflows:
+✅ Use shared workspace locations (`/Workspace/Shared/apps/ci-cd/`)
+✅ Use Databricks CLI official GitHub Action
+✅ Report detailed status
+✅ Are production-ready
+
+Your entire ML research platform is now **fully automated**! 🎉
