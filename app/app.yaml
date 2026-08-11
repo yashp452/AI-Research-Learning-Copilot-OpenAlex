@@ -1,0 +1,26 @@
+command:
+  - gunicorn
+  - "app:app"
+  - --bind
+  - "0.0.0.0:8000"
+  # One worker on purpose. Each worker loads its own copy of the MiniLM model
+  # (~90MB of weights plus torch), so a second worker doubles memory for no
+  # throughput gain at this scale.
+  - --workers
+  - "1"
+  - --threads
+  - "4"
+  # An agent turn can run several tool calls plus multiple model round trips.
+  # The default 30s timeout kills them mid-flight.
+  - --timeout
+  - "300"
+
+env:
+  - name: LAKEBASE_URL
+    valueFrom: "lakebase-url"
+
+  - name: MODEL_PATH
+    value: "/Volumes/workspace/research_copilot/raw/models/all-MiniLM-L6-v2"
+
+  - name: MODEL_ENDPOINT
+    value: "databricks-meta-llama-3-3-70b-instruct"
